@@ -133,7 +133,6 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
     font-weight: 800;
     background: linear-gradient(135deg, var(--accent-primary), var(--accent-tertiary));
     -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
     background-clip: text;
     line-height: 1.1;
 }

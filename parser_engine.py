@@ -9,6 +9,7 @@ No external LLM APIs — all processing is local via spaCy.
 
 import re
 import spacy
+from spacy.cli import download
 from spacy.matcher import Matcher
 from spacy.language import Language
 
@@ -67,7 +68,13 @@ def _build_nlp_pipeline(role_name: str, filepath: str | None = None) -> spacy.La
     kwargs = {"filepath": filepath} if filepath else {}
     config = generate_keyword_config(role_name, **kwargs)
 
-    nlp = spacy.load("en_core_web_sm")
+    # Automatically download the model if missing (fixes Cloud Deployment errors)
+    try:
+        nlp = spacy.load("en_core_web_sm")
+    except OSError:
+        print("Downloading spaCy model 'en_core_web_sm'...")
+        download("en_core_web_sm")
+        nlp = spacy.load("en_core_web_sm")
 
     # Add EntityRuler BEFORE the default NER so our rules take priority
     ruler = nlp.add_pipe("entity_ruler", before="ner")
@@ -107,8 +114,6 @@ def _extract_years_of_experience(nlp: spacy.Language, text: str) -> int | None:
     matcher.add("EXPERIENCE_YEARS", [pattern])
 
     doc = nlp.make_doc(text)  # tokenise without running full pipeline
-    # We need a tokenized doc — Matcher works on tokens
-    # Use nlp.tokenizer directly to avoid running entity_ruler twice
     matches = matcher(doc)
 
     years_found: list[int] = []
@@ -144,15 +149,6 @@ def score_resume(
 ) -> dict:
     """
     Analyse a single resume against the selected role.
-
-    Returns
-    -------
-    dict with keys:
-        total_score        : int
-        favorability_pct   : float  (0-100)
-        skills_found       : list[str]  (deduplicated)
-        years_of_experience: int | None
-        max_possible_score : int
     """
     nlp = _build_nlp_pipeline(role_name, filepath)
     config = nlp.meta["_resume_config"]
@@ -162,7 +158,6 @@ def score_resume(
     doc = nlp(resume_text.lower())
 
     # Collect matched skill entities
-    matched_labels: set[str] = set()
     skills_found: set[str] = set()
 
     for ent in doc.ents:
@@ -176,23 +171,8 @@ def score_resume(
         if keyword in text_lower:
             skills_found.add(keyword)
 
-    # Deduplicate by primary keyword: map synonyms back to their root weight
-    # (avoid double-counting synonyms of the same skill)
-    scored_weights: dict[int, str] = {}  # weight → representative keyword
-    total_score = 0
-    unique_skills: set[str] = set()
-
-    # Group by weight to deduplicate synonyms sharing the same weight bucket
-    weight_groups: dict[str, int] = {}
-    for skill in skills_found:
-        w = keyword_weights.get(skill, 0)
-        # Use the weight as a proxy: if two synonyms share weight, count once
-        if w not in scored_weights:
-            scored_weights[w] = skill
-            total_score += w
-            unique_skills.add(skill)
-        else:
-            unique_skills.add(skill)  # still list it, just don't double-score
+    # Sum up the score of all unique skills found
+    total_score = sum(keyword_weights.get(skill, 0) for skill in skills_found)
 
     favorability = round((total_score / max_possible * 100), 1) if max_possible > 0 else 0.0
 
@@ -201,7 +181,7 @@ def score_resume(
     return {
         "total_score": total_score,
         "favorability_pct": min(favorability, 100.0),
-        "skills_found": sorted(unique_skills),
+        "skills_found": sorted(list(skills_found)),
         "years_of_experience": years,
         "max_possible_score": max_possible,
     }
@@ -267,6 +247,8 @@ if __name__ == "__main__":
     Proficient in Figma, wireframing, and user research.
     Experience with Adobe XD, prototyping, and usability testing.
     """
+    # Note: For this local test to run without an Excel file, ensure 
+    # generate_keyword_config creates mock data if the file is missing.
     result = score_resume(sample, "UI_UX")
     print("Score result:")
     for k, v in result.items():

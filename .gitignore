@@ -1,0 +1,15 @@
+# Ignore the virtual environment
+.venv/
+venv/
+env/
+
+# Ignore Python caches
+__pycache__/
+*.pyc
+
+# Ignore temporary OS files
+.DS_Store
+
+# Optional: Ignore local testing data if you don't want your private resumes on GitHub
+resumes_inbox/
+output/
